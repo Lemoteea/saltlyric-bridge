@@ -30,6 +30,7 @@ public class BridgeService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // 启动时尝试自动扫描连接; 用户手动直连后, 连接已建立, 此处幂等
         if (ble != null) {
             ble.connect();
         }

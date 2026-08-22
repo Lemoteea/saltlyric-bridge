@@ -33,6 +33,7 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView statusText;
     private TextView logText;
+    private android.widget.EditText editMac;
     private final android.os.Handler logHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final Runnable logRunnable = new Runnable() {
         @Override
@@ -51,10 +52,12 @@ public class MainActivity extends AppCompatActivity {
 
         statusText = findViewById(R.id.status_text);
         logText = findViewById(R.id.log_text);
+        editMac = findViewById(R.id.edit_mac);
         Button btnPerm = findViewById(R.id.btn_notif_perm);
         Button btnBluetooth = findViewById(R.id.btn_bluetooth);
         Button btnStart = findViewById(R.id.btn_start);
         Button btnStop = findViewById(R.id.btn_stop);
+        Button btnDirect = findViewById(R.id.btn_direct);
 
         btnPerm.setOnClickListener(v -> openNotifListenerSettings());
         btnBluetooth.setOnClickListener(v -> requestRuntimePermissions());
@@ -68,6 +71,17 @@ public class MainActivity extends AppCompatActivity {
             stopService(new Intent(this, BridgeService.class));
             Toast.makeText(this, "已停止", Toast.LENGTH_SHORT).show();
             refreshStatus();
+        });
+        btnDirect.setOnClickListener(v -> {
+            String mac = editMac.getText().toString().trim();
+            if (mac.isEmpty()) {
+                Toast.makeText(this, "请先输入 MAC 地址", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            requestRuntimePermissions();
+            startServiceCompat();
+            LogStore.add("手动直连 MAC: " + mac);
+            BleLyricClient.get(this).connectByAddress(mac);
         });
     }
 

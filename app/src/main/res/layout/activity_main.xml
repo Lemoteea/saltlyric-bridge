@@ -53,6 +53,35 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="── 手动直连 (绕过扫描, 推荐) ──"
+            android:textStyle="bold"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:text="系统蓝牙里能看到 SaltLyric 时, 记下它的 MAC 地址(形如 A1:B2:C3:D4:E5:F6), 填到下面直接连接, 不受 Android 后台扫描限制。" />
+
+        <EditText
+            android:id="@+id/edit_mac"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入 SaltLyric 的 MAC 地址"
+            android:inputType="text"
+            android:maxLines="1"
+            android:paddingTop="4dp" />
+
+        <Button
+            android:id="@+id/btn_direct"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="按 MAC 直连" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="── 调试日志 ──"
             android:textStyle="bold"
             android:paddingTop="8dp"

@@ -95,6 +95,13 @@ public class BleLyricClient {
             post("蓝牙未开启");
             return;
         }
+        // 权限诊断: 检查 BLUETOOTH_SCAN 是否授予
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            int scanPerm = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN);
+            int connPerm = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT);
+            LogStore.add("权限: SCAN=" + (scanPerm == 0 ? "已授予" : "未授予") +
+                    " CONNECT=" + (connPerm == 0 ? "已授予" : "未授予"));
+        }
         scanner = adapter.getBluetoothLeScanner();
         if (scanner == null) {
             post("无 BLE 扫描器");
@@ -118,6 +125,36 @@ public class BleLyricClient {
         }
         // 15s 超时停止扫描
         handler.postDelayed(this::stopScanIfIdle, 15000);
+    }
+
+    /** 绕过扫描, 直接用 MAC 地址连接 (解决 Android 后台扫描限制) */
+    @SuppressLint("MissingPermission")
+    public void connectByAddress(String mac) {
+        if (connected && gatt != null) {
+            post("已连接");
+            return;
+        }
+        if (gatt != null) {
+            try {
+                gatt.close();
+            } catch (Exception ignored) {
+            }
+            gatt = null;
+        }
+        stopScan();
+        BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = bm.getAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            post("蓝牙未开启");
+            return;
+        }
+        try {
+            BluetoothDevice device = adapter.getRemoteDevice(mac.toUpperCase().trim());
+            post("按 MAC 直连 " + mac + " ...");
+            gatt = device.connectGatt(context, false, gattCallback);
+        } catch (Exception e) {
+            post("MAC 地址无效: " + e.getMessage());
+        }
     }
 
     private void stopScanIfIdle() {
