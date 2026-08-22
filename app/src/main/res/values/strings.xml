@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SaltLyric 桥接</string>
+    <string name="notif_listener_label">SaltLyric 歌词监听</string>
+</resources>

@@ -1,0 +1,233 @@
+package com.saltlyric.bridge;
+
+import android.annotation.SuppressLint;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattService;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanFilter;
+import android.bluetooth.le.ScanResult;
+import android.bluetooth.le.ScanSettings;
+import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * BLE 客户端: 扫描 "SaltLyric" 设备, 连接并写入歌词特征。
+ * 协议见 docs/ble-protocol.md:
+ *   服务 8F70A001-1234-4A1E-9D5E-1B2C3D4E5F60
+ *   LINE 8F70A002 / TITLE 8F70A003 / STATE 8F70A004 / LRC 8F70A005 / SEEK 8F70A006
+ */
+public class BleLyricClient {
+    private static final String TAG = "BleLyricClient";
+    public static final String DEVICE_NAME = "SaltLyric";
+
+    public static final UUID SERVICE_UUID = UUID.fromString("8F70A001-1234-4A1E-9D5E-1B2C3D4E5F60");
+    public static final UUID CHAR_LINE = UUID.fromString("8F70A002-1234-4A1E-9D5E-1B2C3D4E5F60");
+    public static final UUID CHAR_TITLE = UUID.fromString("8F70A003-1234-4A1E-9D5E-1B2C3D4E5F60");
+    public static final UUID CHAR_STATE = UUID.fromString("8F70A004-1234-4A1E-9D5E-1B2C3D4E5F60");
+    public static final UUID CHAR_LRC = UUID.fromString("8F70A005-1234-4A1E-9D5E-1B2C3D4E5F60");
+    public static final UUID CHAR_SEEK = UUID.fromString("8F70A006-1234-4A1E-9D5E-1B2C3D4E5F60");
+
+    public interface Listener {
+        void onState(String text); // 状态文字 (UI/日志)
+    }
+
+    private final Context context;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Listener listener;
+
+    private BluetoothLeScanner scanner;
+    private BluetoothGatt gatt;
+    private boolean scanning = false;
+    private boolean connected = false;
+
+    private BluetoothGattCharacteristic chLine;
+    private BluetoothGattCharacteristic chTitle;
+    private BluetoothGattCharacteristic chState;
+
+    public BleLyricClient(Context context) {
+        this.context = context.getApplicationContext();
+    }
+
+    public void setListener(Listener l) {
+        this.listener = l;
+    }
+
+    private void post(String s) {
+        if (listener != null) {
+            listener.onState(s);
+        }
+    }
+
+    /** 开始扫描 "SaltLyric" 并自动连接 (幂等) */
+    @SuppressLint("MissingPermission")
+    public void connect() {
+        if (connected && gatt != null) {
+            post("已连接");
+            return;
+        }
+        BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = bm.getAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            post("蓝牙未开启");
+            return;
+        }
+        scanner = adapter.getBluetoothLeScanner();
+        if (scanner == null) {
+            post("无 BLE 扫描器");
+            return;
+        }
+        if (scanning) {
+            return;
+        }
+        scanning = true;
+        post("扫描中...");
+        List<ScanFilter> filters = new ArrayList<>();
+        filters.add(new ScanFilter.Builder().setDeviceName(DEVICE_NAME).build());
+        ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build();
+        try {
+            scanner.startScan(filters, settings, scanCallback);
+        } catch (Exception e) {
+            post("扫描启动失败: " + e.getMessage());
+            scanning = false;
+        }
+        // 15s 超时停止扫描
+        handler.postDelayed(this::stopScanIfIdle, 15000);
+    }
+
+    private void stopScanIfIdle() {
+        if (scanning) {
+            stopScan();
+            if (!connected) {
+                post("未发现 " + DEVICE_NAME + "，请确认设备在广播");
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private void stopScan() {
+        if (scanner != null && scanning) {
+            try {
+                scanner.stopScan(scanCallback);
+            } catch (Exception ignored) {
+            }
+            scanning = false;
+        }
+    }
+
+    private final ScanCallback scanCallback = new ScanCallback() {
+        @SuppressLint("MissingPermission")
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            BluetoothDevice device = result.getDevice();
+            String name = device.getName();
+            if (name != null && name.equalsIgnoreCase(DEVICE_NAME)) {
+                stopScan();
+                post("找到 " + DEVICE_NAME + "，连接中...");
+                gatt = device.connectGatt(context, false, gattCallback);
+            }
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            scanning = false;
+            post("扫描失败 code=" + errorCode);
+        }
+    };
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @SuppressLint("MissingPermission")
+        @Override
+        public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                post("已连接，发现服务...");
+                g.discoverServices();
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                connected = false;
+                post("连接断开，3 秒后重连...");
+                gatt = null;
+                handler.postDelayed(() -> connect(), 3000);
+            }
+        }
+
+        @Override
+        public void onServicesDiscovered(BluetoothGatt g, int status) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                post("服务发现失败 status=" + status);
+                return;
+            }
+            BluetoothGattService svc = g.getService(SERVICE_UUID);
+            if (svc == null) {
+                post("未找到服务 (固件版本不符?)");
+                return;
+            }
+            chLine = svc.getCharacteristic(CHAR_LINE);
+            chTitle = svc.getCharacteristic(CHAR_TITLE);
+            chState = svc.getCharacteristic(CHAR_STATE);
+            connected = true;
+            post("已连接 " + DEVICE_NAME + "，等待歌词...");
+        }
+    };
+
+    /** 写入当前行歌词 (UTF-8, 不带换行) */
+    public boolean writeLine(String text) {
+        return writeChar(chLine, text);
+    }
+
+    public boolean writeTitle(String text) {
+        return writeChar(chTitle, text);
+    }
+
+    /** 播放状态: 0=暂停 1=播放 */
+    public boolean writeState(int playing) {
+        if (chState == null || !connected) {
+            return false;
+        }
+        try {
+            chState.setValue(new byte[]{(byte) (playing != 0 ? 1 : 0)});
+            return gatt.writeCharacteristic(chState);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean writeChar(BluetoothGattCharacteristic ch, String text) {
+        if (ch == null || !connected) {
+            return false;
+        }
+        try {
+            ch.setValue(text == null ? "" : text);
+            return gatt.writeCharacteristic(ch);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    public void disconnect() {
+        stopScan();
+        if (gatt != null) {
+            try {
+                gatt.disconnect();
+                gatt.close();
+            } catch (Exception ignored) {
+            }
+            gatt = null;
+        }
+        connected = false;
+    }
+}
