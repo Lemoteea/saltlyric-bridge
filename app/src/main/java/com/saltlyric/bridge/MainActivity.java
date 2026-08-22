@@ -32,6 +32,17 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQ_PERMS = 100;
 
     private TextView statusText;
+    private TextView logText;
+    private final android.os.Handler logHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable logRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (logText != null) {
+                logText.setText(LogStore.dump());
+            }
+            logHandler.postDelayed(this, 800);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         statusText = findViewById(R.id.status_text);
+        logText = findViewById(R.id.log_text);
         Button btnPerm = findViewById(R.id.btn_notif_perm);
         Button btnBluetooth = findViewById(R.id.btn_bluetooth);
         Button btnStart = findViewById(R.id.btn_start);
@@ -63,6 +75,13 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        logHandler.post(logRunnable);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        logHandler.removeCallbacks(logRunnable);
     }
 
     private void refreshStatus() {

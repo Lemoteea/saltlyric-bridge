@@ -23,7 +23,8 @@ public class BridgeService extends Service {
         super.onCreate();
         createChannel();
         startForeground(NOTIF_ID, buildNotification("正在等待椒盐音乐歌词"));
-        ble = new BleLyricClient(this);
+        ble = BleLyricClient.get(this);
+        ble.setListener(text -> updateNotif(text));
         ble.connect();
     }
 
@@ -33,6 +34,16 @@ public class BridgeService extends Service {
             ble.connect();
         }
         return START_STICKY;
+    }
+
+    private void updateNotif(String text) {
+        try {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) {
+                nm.notify(NOTIF_ID, buildNotification(text));
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

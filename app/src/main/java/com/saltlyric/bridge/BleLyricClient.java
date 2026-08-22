@@ -57,7 +57,17 @@ public class BleLyricClient {
     private BluetoothGattCharacteristic chTitle;
     private BluetoothGattCharacteristic chState;
 
-    public BleLyricClient(Context context) {
+    /** 全局单例: 整个 App 共享一个 BLE 连接 */
+    private static BleLyricClient instance;
+
+    public static synchronized BleLyricClient get(Context context) {
+        if (instance == null) {
+            instance = new BleLyricClient(context);
+        }
+        return instance;
+    }
+
+    private BleLyricClient(Context context) {
         this.context = context.getApplicationContext();
     }
 
@@ -66,6 +76,7 @@ public class BleLyricClient {
     }
 
     private void post(String s) {
+        LogStore.add(s);
         if (listener != null) {
             listener.onState(s);
         }
@@ -93,14 +104,14 @@ public class BleLyricClient {
             return;
         }
         scanning = true;
-        post("扫描中...");
-        List<ScanFilter> filters = new ArrayList<>();
-        filters.add(new ScanFilter.Builder().setDeviceName(DEVICE_NAME).build());
+        post("扫描中... (寻找 " + DEVICE_NAME + ")");
+        // 注意: 设备名放在扫描响应里, 不能用 ScanFilter 过滤名字,
+        // 只能扫全部设备再逐个比对 (BluetoothDevice.getName() 能读到扫描响应的名字)
         ScanSettings settings = new ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
         try {
-            scanner.startScan(filters, settings, scanCallback);
+            scanner.startScan(null, settings, scanCallback);
         } catch (Exception e) {
             post("扫描启动失败: " + e.getMessage());
             scanning = false;

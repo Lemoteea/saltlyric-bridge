@@ -28,7 +28,7 @@ public class LyricNotificationListener extends NotificationListenerService {
     @Override
     public void onCreate() {
         super.onCreate();
-        ble = new BleLyricClient(this);
+        ble = BleLyricClient.get(this);
     }
 
     @Override
@@ -70,6 +70,8 @@ public class LyricNotificationListener extends NotificationListenerService {
         // 播放状态: 从通知 actions 推断 (有暂停按钮 => 播放中)
         int playing = inferPlaying(notif);
 
+        LogStore.add("通知: title='" + title + "' text='" + text + "'");
+
         // 确保已连接 (通知到达时才开始连, 避免空跑)
         if (ble != null) {
             ble.connect();
@@ -78,14 +80,19 @@ public class LyricNotificationListener extends NotificationListenerService {
         // 转发 (仅变化时)
         if (ble != null) {
             if (!title.equals(lastTitle) && !title.isEmpty()) {
-                ble.writeTitle(title);
+                LogStore.add("写标题: " + title);
+                boolean ok = ble.writeTitle(title);
+                LogStore.add(ok ? "标题OK" : "标题写失败(未连接?)");
                 lastTitle = title;
             }
             if (!text.equals(lastLine) && !text.isEmpty()) {
-                ble.writeLine(text);
+                LogStore.add("写歌词: " + text);
+                boolean ok = ble.writeLine(text);
+                LogStore.add(ok ? "歌词OK" : "歌词写失败(未连接?)");
                 lastLine = text;
             }
             if (playing != lastState) {
+                LogStore.add("写状态: " + playing);
                 ble.writeState(playing);
                 lastState = playing;
             }
