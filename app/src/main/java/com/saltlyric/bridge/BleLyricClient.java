@@ -141,11 +141,36 @@ public class BleLyricClient {
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
+        // 记录每个扫到的设备地址, 避免日志刷屏 (每个设备只记一次)
+        private final java.util.Set<String> seen = new java.util.HashSet<>();
+
         @SuppressLint("MissingPermission")
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             BluetoothDevice device = result.getDevice();
             String name = device.getName();
+            String addr = device.getAddress();
+
+            // 全视图日志: 记录扫到的每个设备 (名字 + 服务UUID)
+            if (!seen.contains(addr)) {
+                seen.add(addr);
+                try {
+                    android.bluetooth.le.ScanRecord record = result.getScanRecord();
+                    String uuidStr = "";
+                    if (record != null) {
+                        List<android.os.ParcelUuid> uuids = record.getServiceUuids();
+                        if (uuids != null && !uuids.isEmpty()) {
+                            for (android.os.ParcelUuid u : uuids) {
+                                uuidStr += u.getUuid().toString() + " ";
+                            }
+                        }
+                    }
+                    LogStore.add("扫到: " + (name == null ? "(无名)" : name) +
+                            " [" + addr + "] UUID:" + (uuidStr.isEmpty() ? "(无)" : uuidStr));
+                } catch (Exception ignored) {
+                }
+            }
+
             boolean matched = false;
 
             // 首选: 广播包里的服务 UUID (最可靠, 不依赖名字)
@@ -172,7 +197,7 @@ public class BleLyricClient {
 
             if (matched) {
                 stopScan();
-                post("找到 " + DEVICE_NAME + " (UUID匹配)，连接中...");
+                post("找到 " + DEVICE_NAME + " (匹配)，连接中...");
                 gatt = device.connectGatt(context, false, gattCallback);
             }
         }
