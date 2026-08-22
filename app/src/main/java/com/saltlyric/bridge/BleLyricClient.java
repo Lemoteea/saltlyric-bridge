@@ -146,9 +146,33 @@ public class BleLyricClient {
         public void onScanResult(int callbackType, ScanResult result) {
             BluetoothDevice device = result.getDevice();
             String name = device.getName();
-            if (name != null && name.equalsIgnoreCase(DEVICE_NAME)) {
+            boolean matched = false;
+
+            // 首选: 广播包里的服务 UUID (最可靠, 不依赖名字)
+            try {
+                android.bluetooth.le.ScanRecord record = result.getScanRecord();
+                if (record != null) {
+                    List<android.os.ParcelUuid> uuids = record.getServiceUuids();
+                    if (uuids != null) {
+                        for (android.os.ParcelUuid u : uuids) {
+                            if (SERVICE_UUID.equals(u.getUuid())) {
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            // 兜底: 名字匹配
+            if (!matched && name != null && name.equalsIgnoreCase(DEVICE_NAME)) {
+                matched = true;
+            }
+
+            if (matched) {
                 stopScan();
-                post("找到 " + DEVICE_NAME + "，连接中...");
+                post("找到 " + DEVICE_NAME + " (UUID匹配)，连接中...");
                 gatt = device.connectGatt(context, false, gattCallback);
             }
         }
