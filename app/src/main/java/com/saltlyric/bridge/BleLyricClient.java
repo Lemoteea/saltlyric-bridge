@@ -250,14 +250,22 @@ public class BleLyricClient {
         @SuppressLint("MissingPermission")
         @Override
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            LogStore.add("GATT: status=" + status + " newState=" + newState);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 post("已连接，发现服务...");
                 g.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false;
-                post("连接断开，3 秒后重连...");
+                // status 133 = 连接失败/被拒; 其他 = 断开
+                if (status != 0) {
+                    post("连接失败 status=" + status + " (可能被设备拒绝或超时)");
+                } else {
+                    post("连接断开，3 秒后重连...");
+                }
                 gatt = null;
-                handler.postDelayed(() -> connect(), 3000);
+                if (status == 0) {
+                    handler.postDelayed(() -> connect(), 3000);
+                }
             }
         }
 
