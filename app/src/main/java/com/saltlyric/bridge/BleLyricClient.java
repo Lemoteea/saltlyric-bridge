@@ -344,8 +344,14 @@ public class BleLyricClient {
                 connecting = false;
                 connected = true;
                 connectAttempts = 0; // 连接成功, 重置尝试计数
-                post("已连接，发现服务...");
-                g.discoverServices();
+                post("已连接，协商 MTU...");
+                // 关键: 请求最大 MTU, 否则默认 20 字节/次, 中文歌词(3字节/字)只能写 6 个字!
+                try {
+                    g.requestMtu(517);
+                } catch (Exception e) {
+                    post("请求 MTU 失败: " + e.getMessage() + "，直接发现服务");
+                    g.discoverServices();
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false;
                 connecting = false;
@@ -373,6 +379,16 @@ public class BleLyricClient {
         }
 
         @Override
+        public void onMtuChanged(BluetoothGatt g, int mtu, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                post("MTU 协商成功: " + mtu + " (可写长歌词)");
+            } else {
+                post("MTU 协商失败 status=" + status + "，可能仍限 20 字节");
+            }
+            g.discoverServices();
+        }
+
+        @Override
         public void onServicesDiscovered(BluetoothGatt g, int status) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 post("服务发现失败 status=" + status);
@@ -391,13 +407,13 @@ public class BleLyricClient {
         }
     };
 
-    /** 写入当前行歌词 (UTF-8, 不带换行) */
+    /** 写入当前行歌词 (UTF-8, 以换行结尾, 固件据此判定完整一行) */
     public boolean writeLine(String text) {
-        return writeChar(chLine, text);
+        return writeChar(chLine, text == null ? "\n" : text + "\n");
     }
 
     public boolean writeTitle(String text) {
-        return writeChar(chTitle, text);
+        return writeChar(chTitle, text == null ? "\n" : text + "\n");
     }
 
     /** 播放状态: 0=暂停 1=播放 */
