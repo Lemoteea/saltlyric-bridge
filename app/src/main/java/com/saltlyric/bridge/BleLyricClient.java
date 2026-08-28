@@ -44,7 +44,7 @@ public class BleLyricClient {
         void onState(String text); // 状态文字 (UI/日志)
     }
 
-    private final Context context;
+    private Context context;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Listener listener;
 
@@ -53,6 +53,8 @@ public class BleLyricClient {
     private boolean scanning = false;
     private boolean connected = false;
     private boolean connecting = false;
+    private final Runnable connectTimeoutRunnable = this::onConnectTimeout;
+    private int connectAttempts = 0;
 
     private BluetoothGattCharacteristic chLine;
     private BluetoothGattCharacteristic chTitle;
@@ -64,12 +66,21 @@ public class BleLyricClient {
     public static synchronized BleLyricClient get(Context context) {
         if (instance == null) {
             instance = new BleLyricClient(context);
+        } else {
+            // 用最新的 context 更新 (Activity context 比 application context 更利于 BLE 连接)
+            instance.updateContext(context);
         }
         return instance;
     }
 
     private BleLyricClient(Context context) {
-        this.context = context.getApplicationContext();
+        // 注意: 不能用 getApplicationContext() 做 BLE 连接, 会导致 connectGatt 失败 (status 133)
+        this.context = context;
+    }
+
+    /** 更新为最新传入的 context (MainActivity/Service), 保证连接时用有效 context */
+    public synchronized void updateContext(Context context) {
+        this.context = context;
     }
 
     public void setListener(Listener l) {
@@ -92,6 +103,14 @@ public class BleLyricClient {
         }
         if (connecting) {
             return; // 正在连接中, 不重复发起
+        }
+        if (gatt != null) {
+            // 清理残留的 gatt, 避免系统蓝牙缓存导致连接失败 (status 133)
+            try {
+                gatt.close();
+            } catch (Exception ignored) {
+            }
+            gatt = null;
         }
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm.getAdapter();
@@ -133,6 +152,23 @@ public class BleLyricClient {
         handler.postDelayed(this::stopScanIfIdle, 15000);
     }
 
+    /** connectGatt 后无回调的兜底超时: 15 秒未连接成功则清理并重新扫描 */
+    private void onConnectTimeout() {
+        if (connecting) {
+            connecting = false;
+            if (gatt != null) {
+                try {
+                    gatt.disconnect();
+                    gatt.close();
+                } catch (Exception ignored) {
+                }
+                gatt = null;
+            }
+            post("连接超时 (15s 无响应)，重新扫描...");
+            handler.postDelayed(this::connect, 2000);
+        }
+    }
+
     /** 绕过扫描, 直接用 MAC 地址连接 (解决 Android 后台扫描限制) */
     @SuppressLint("MissingPermission")
     public void connectByAddress(String mac) {
@@ -161,16 +197,21 @@ public class BleLyricClient {
             BluetoothDevice device = adapter.getRemoteDevice(mac.toUpperCase().trim());
             post("按 MAC 直连 " + mac + " ...");
             connecting = true;
+            connectAttempts++;
             final BluetoothDevice target = device;
+            handler.removeCallbacks(connectTimeoutRunnable);
+            handler.postDelayed(connectTimeoutRunnable, 15000);
             handler.post(() -> {
                 try {
                     gatt = target.connectGatt(context, false, gattCallback);
                     if (gatt == null) {
                         connecting = false;
+                        handler.removeCallbacks(connectTimeoutRunnable);
                         post("connectGatt 返回 null，连接失败");
                     }
                 } catch (Exception e) {
                     connecting = false;
+                    handler.removeCallbacks(connectTimeoutRunnable);
                     post("连接异常: " + e.getMessage());
                 }
             });
@@ -263,15 +304,21 @@ public class BleLyricClient {
                 post("找到 " + DEVICE_NAME + " (匹配)，连接中...");
                 final BluetoothDevice target = device;
                 connecting = true;
+                connectAttempts++;
+                // 启动连接超时兜底 (15s)
+                handler.removeCallbacks(connectTimeoutRunnable);
+                handler.postDelayed(connectTimeoutRunnable, 15000);
                 handler.post(() -> {
                     try {
                         gatt = target.connectGatt(context, false, gattCallback);
                         if (gatt == null) {
                             connecting = false;
-                            post("connectGatt 返回 null，连接失败");
+                            handler.removeCallbacks(connectTimeoutRunnable);
+                            post("connectGatt 返回 null，连接失败 (尝试 " + connectAttempts + ")");
                         }
                     } catch (Exception e) {
                         connecting = false;
+                        handler.removeCallbacks(connectTimeoutRunnable);
                         post("连接异常: " + e.getMessage());
                     }
                 });
@@ -289,10 +336,12 @@ public class BleLyricClient {
         @SuppressLint("MissingPermission")
         @Override
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+            handler.removeCallbacks(connectTimeoutRunnable);
             LogStore.add("GATT: status=" + status + " newState=" + newState);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 connecting = false;
                 connected = true;
+                connectAttempts = 0; // 连接成功, 重置尝试计数
                 post("已连接，发现服务...");
                 g.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -311,8 +360,13 @@ public class BleLyricClient {
                     }
                     gatt = null;
                 }
-                // 无论成功与否, 失败后都回到扫描流程 (扫描连接地址类型正确, 优于 getRemoteDevice)
-                handler.postDelayed(() -> connect(), 3000);
+                // 失败后回到扫描流程 (扫描连接地址类型正确, 优于 getRemoteDevice)
+                // 但最多重试 6 次, 避免无限重连刷屏
+                if (connectAttempts < 6) {
+                    handler.postDelayed(() -> connect(), 3000);
+                } else {
+                    post("重试次数过多，已停止。请重启蓝牙或重启手机后重试");
+                }
             }
         }
 
@@ -351,7 +405,7 @@ public class BleLyricClient {
         }
         try {
             chState.setValue(new byte[]{(byte) (playing != 0 ? 1 : 0)});
-            return gatt.writeCharacteristic(chState);
+            return writeOnMain(() -> gatt.writeCharacteristic(chState));
         } catch (Exception e) {
             return false;
         }
@@ -363,15 +417,34 @@ public class BleLyricClient {
         }
         try {
             ch.setValue(text == null ? "" : text);
-            return gatt.writeCharacteristic(ch);
+            return writeOnMain(() -> gatt.writeCharacteristic(ch));
         } catch (Exception e) {
             return false;
         }
     }
 
+    /** 在主线程序执行写操作 (BLE 写最好在主线程), 异步执行不阻塞调用方 */
+    private boolean writeOnMain(final java.util.concurrent.Callable<Boolean> call) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            try {
+                return call.call();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        handler.post(() -> {
+            try {
+                call.call();
+            } catch (Exception ignored) {
+            }
+        });
+        return true;
+    }
+
     @SuppressLint("MissingPermission")
     public void disconnect() {
         stopScan();
+        handler.removeCallbacks(connectTimeoutRunnable);
         if (gatt != null) {
             try {
                 gatt.disconnect();
@@ -382,5 +455,6 @@ public class BleLyricClient {
         }
         connected = false;
         connecting = false;
+        connectAttempts = 0;
     }
 }

@@ -64,7 +64,9 @@ public class MainActivity extends AppCompatActivity {
         btnStart.setOnClickListener(v -> {
             requestRuntimePermissions();
             startServiceCompat();
-            Toast.makeText(this, "桥接服务已启动，请打开椒盐音乐播放", Toast.LENGTH_SHORT).show();
+            // 显式触发连接 (在 Activity 前台, 蓝牙扫描/连接最可靠)
+            BleLyricClient.get(this).connect();
+            Toast.makeText(this, "桥接服务已启动，正在连接 SaltLyric...", Toast.LENGTH_SHORT).show();
             refreshStatus();
         });
         btnStop.setOnClickListener(v -> {
@@ -88,6 +90,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 用 Activity context 更新 BLE 客户端 (application context 会导致 connectGatt 失败)
+        BleLyricClient.get(this);
         refreshStatus();
         logHandler.post(logRunnable);
     }
