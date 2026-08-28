@@ -203,7 +203,8 @@ public class BleLyricClient {
             handler.postDelayed(connectTimeoutRunnable, 15000);
             handler.post(() -> {
                 try {
-                    gatt = target.connectGatt(context, false, gattCallback);
+                    // TRANSPORT_LE: 显式指定 BLE 传输层, 避免 TRANSPORT_AUTO 选错导致 status 133
+                    gatt = target.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
                     if (gatt == null) {
                         connecting = false;
                         handler.removeCallbacks(connectTimeoutRunnable);
@@ -310,7 +311,8 @@ public class BleLyricClient {
                 handler.postDelayed(connectTimeoutRunnable, 15000);
                 handler.post(() -> {
                     try {
-                        gatt = target.connectGatt(context, false, gattCallback);
+                        // TRANSPORT_LE: 显式指定 BLE 传输层, 避免 TRANSPORT_AUTO 选错导致 status 133
+                        gatt = target.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE);
                         if (gatt == null) {
                             connecting = false;
                             handler.removeCallbacks(connectTimeoutRunnable);
