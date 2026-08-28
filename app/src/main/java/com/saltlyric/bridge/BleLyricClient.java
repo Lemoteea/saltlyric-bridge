@@ -118,7 +118,9 @@ public class BleLyricClient {
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build();
         try {
-            scanner.startScan(null, settings, scanCallback);
+            // 空列表 = 扫全部设备 (传 null 在部分设备上会静默失败)
+            scanner.startScan(new ArrayList<ScanFilter>(), settings, scanCallback);
+            LogStore.add("扫描已启动 (API " + android.os.Build.VERSION.SDK_INT + ")");
         } catch (Exception e) {
             post("扫描启动失败: " + e.getMessage());
             scanning = false;
@@ -256,16 +258,21 @@ public class BleLyricClient {
                 g.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false;
-                // status 133 = 连接失败/被拒; 其他 = 断开
+                // status 133 = 连接建立失败/被拒; 0 = 正常断开
                 if (status != 0) {
-                    post("连接失败 status=" + status + " (可能被设备拒绝或超时)");
+                    post("连接失败 status=" + status + "，3 秒后重新扫描...");
                 } else {
                     post("连接断开，3 秒后重连...");
                 }
-                gatt = null;
-                if (status == 0) {
-                    handler.postDelayed(() -> connect(), 3000);
+                if (gatt != null) {
+                    try {
+                        gatt.close();
+                    } catch (Exception ignored) {
+                    }
+                    gatt = null;
                 }
+                // 无论成功与否, 失败后都回到扫描流程 (扫描连接地址类型正确, 优于 getRemoteDevice)
+                handler.postDelayed(() -> connect(), 3000);
             }
         }
 
