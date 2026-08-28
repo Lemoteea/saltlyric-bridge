@@ -67,10 +67,17 @@ public class LyricNotificationListener extends NotificationListenerService {
             }
         }
 
+        // 椒盐音乐的通知结构: EXTRA_TITLE 是"当前歌词", EXTRA_TEXT 才是"歌名-歌手"
+        // (与常见 App 相反), 因此交换后写入:
+        //   歌名(title ← EXTRA_TEXT) → 屏幕顶部 TITLE 特征
+        //   歌词(line ← EXTRA_TITLE) → 屏幕中间 LINE 特征
+        String songTitle = text;      // 歌名-歌手
+        String lyricLine = title;     // 当前歌词
+
         // 播放状态: 从通知 actions 推断 (有暂停按钮 => 播放中)
         int playing = inferPlaying(notif);
 
-        LogStore.add("通知: title='" + title + "' text='" + text + "'");
+        LogStore.add("通知: 歌名='" + songTitle + "' 歌词='" + lyricLine + "'");
 
         // 确保已连接 (通知到达时才开始连, 避免空跑)
         if (ble != null) {
@@ -79,17 +86,17 @@ public class LyricNotificationListener extends NotificationListenerService {
 
         // 转发 (仅变化时)
         if (ble != null) {
-            if (!title.equals(lastTitle) && !title.isEmpty()) {
-                LogStore.add("写标题: " + title);
-                boolean ok = ble.writeTitle(title);
-                LogStore.add(ok ? "标题OK" : "标题写失败(未连接?)");
-                lastTitle = title;
+            if (!songTitle.equals(lastTitle) && !songTitle.isEmpty()) {
+                LogStore.add("写歌名: " + songTitle);
+                boolean ok = ble.writeTitle(songTitle);
+                LogStore.add(ok ? "歌名OK" : "歌名写失败(未连接?)");
+                lastTitle = songTitle;
             }
-            if (!text.equals(lastLine) && !text.isEmpty()) {
-                LogStore.add("写歌词: " + text);
-                boolean ok = ble.writeLine(text);
+            if (!lyricLine.equals(lastLine) && !lyricLine.isEmpty()) {
+                LogStore.add("写歌词: " + lyricLine);
+                boolean ok = ble.writeLine(lyricLine);
                 LogStore.add(ok ? "歌词OK" : "歌词写失败(未连接?)");
-                lastLine = text;
+                lastLine = lyricLine;
             }
             if (playing != lastState) {
                 LogStore.add("写状态: " + playing);
