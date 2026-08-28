@@ -52,6 +52,7 @@ public class BleLyricClient {
     private BluetoothGatt gatt;
     private boolean scanning = false;
     private boolean connected = false;
+    private boolean connecting = false;
 
     private BluetoothGattCharacteristic chLine;
     private BluetoothGattCharacteristic chTitle;
@@ -88,6 +89,9 @@ public class BleLyricClient {
         if (connected && gatt != null) {
             post("已连接");
             return;
+        }
+        if (connecting) {
+            return; // 正在连接中, 不重复发起
         }
         BluetoothManager bm = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm.getAdapter();
@@ -136,6 +140,9 @@ public class BleLyricClient {
             post("已连接");
             return;
         }
+        if (connecting) {
+            return;
+        }
         if (gatt != null) {
             try {
                 gatt.close();
@@ -153,7 +160,20 @@ public class BleLyricClient {
         try {
             BluetoothDevice device = adapter.getRemoteDevice(mac.toUpperCase().trim());
             post("按 MAC 直连 " + mac + " ...");
-            gatt = device.connectGatt(context, false, gattCallback);
+            connecting = true;
+            final BluetoothDevice target = device;
+            handler.post(() -> {
+                try {
+                    gatt = target.connectGatt(context, false, gattCallback);
+                    if (gatt == null) {
+                        connecting = false;
+                        post("connectGatt 返回 null，连接失败");
+                    }
+                } catch (Exception e) {
+                    connecting = false;
+                    post("连接异常: " + e.getMessage());
+                }
+            });
         } catch (Exception e) {
             post("MAC 地址无效: " + e.getMessage());
         }
@@ -235,9 +255,26 @@ public class BleLyricClient {
             }
 
             if (matched) {
+                // 在扫描回调(非主线程)里直接 connectGatt 会不可靠, 移到主线程
+                if (gatt != null || connecting) {
+                    return; // 已有连接或正在连接, 去重
+                }
                 stopScan();
                 post("找到 " + DEVICE_NAME + " (匹配)，连接中...");
-                gatt = device.connectGatt(context, false, gattCallback);
+                final BluetoothDevice target = device;
+                connecting = true;
+                handler.post(() -> {
+                    try {
+                        gatt = target.connectGatt(context, false, gattCallback);
+                        if (gatt == null) {
+                            connecting = false;
+                            post("connectGatt 返回 null，连接失败");
+                        }
+                    } catch (Exception e) {
+                        connecting = false;
+                        post("连接异常: " + e.getMessage());
+                    }
+                });
             }
         }
 
@@ -254,10 +291,13 @@ public class BleLyricClient {
         public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
             LogStore.add("GATT: status=" + status + " newState=" + newState);
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                connecting = false;
+                connected = true;
                 post("已连接，发现服务...");
                 g.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false;
+                connecting = false;
                 // status 133 = 连接建立失败/被拒; 0 = 正常断开
                 if (status != 0) {
                     post("连接失败 status=" + status + "，3 秒后重新扫描...");
@@ -341,5 +381,6 @@ public class BleLyricClient {
             gatt = null;
         }
         connected = false;
+        connecting = false;
     }
 }
