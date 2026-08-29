@@ -70,7 +70,9 @@ public class LyricNotificationListener extends NotificationListenerService {
         // 椒盐音乐通知结构 (已确认):
         //   EXTRA_TITLE = 当前歌词
         //   EXTRA_TEXT  = 歌手+专辑名 (通知中无单独歌名字段)
-        String songTitle = text;      // 歌手+专辑名 → 屏幕左上角
+        // 屏幕左上角只显示歌手名: 从 "歌手 - 专辑" 中取分隔符前的部分
+        String artistAlbum = text;
+        String songTitle = extractArtist(artistAlbum);
         String lyricLine = title;     // 当前歌词 → 屏幕主体
 
         // 播放状态: 从通知 actions 推断 (有暂停按钮 => 播放中)
@@ -101,6 +103,26 @@ public class LyricNotificationListener extends NotificationListenerService {
                 lastState = playing;
             }
         }
+    }
+
+    /** 从 "歌手 - 专辑名" 提取歌手名 (取第一个分隔符前的内容) */
+    private String extractArtist(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        String t = s.trim();
+        // 常见分隔: " - ", "-", "/", "、", "|", "·", 空格
+        String[] seps = {" - ", " -", "- ", "-", "/", "、", "|", "·", "・", " "};
+        for (String sep : seps) {
+            int idx = t.indexOf(sep);
+            if (idx > 0) {
+                String cand = t.substring(0, idx).trim();
+                if (!cand.isEmpty() && cand.length() <= 30) {
+                    return cand;
+                }
+            }
+        }
+        return t;
     }
 
     /** 从通知 actions 推断播放状态: 存在 ic_media_pause => 播放中 */
