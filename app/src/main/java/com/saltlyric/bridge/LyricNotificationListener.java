@@ -67,38 +67,14 @@ public class LyricNotificationListener extends NotificationListenerService {
             }
         }
 
-        // 诊断: 打印通知的全部字段, 便于定位歌名/艺术家/歌词
-        StringBuilder diag = new StringBuilder();
-        diag.append("通知字段: title='").append(title)
-            .append("' text='").append(text)
-            .append("' bigText='").append(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
-            .append("' subText='").append(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
-            .append("' infoText='").append(extras.getCharSequence(Notification.EXTRA_INFO_TEXT));
-        try {
-            java.util.Set<String> keys = extras.keySet();
-            for (String k : keys) {
-                if (k.contains("title") || k.contains("TITLE") || k.contains("artist") ||
-                        k.contains("song") || k.contains("album") || k.contains("metadata") ||
-                        k.contains("text") || k.contains("lyric")) {
-                    Object v = extras.get(k);
-                    if (v != null) {
-                        diag.append(" | ").append(k).append("=").append(v.toString());
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        LogStore.add(diag.toString());
-
-        // 椒盐音乐的通知结构待确认 (诊断日志会揭示真实字段):
-        // 暂定: EXTRA_TITLE=歌词, EXTRA_TEXT=艺术家+专辑 (歌名位置待诊断日志确认)
-        String songTitle = text;      // 临时: 艺术家+专辑
-        String lyricLine = title;     // 当前歌词
+        // 椒盐音乐通知结构 (已确认):
+        //   EXTRA_TITLE = 当前歌词
+        //   EXTRA_TEXT  = 歌手+专辑名 (通知中无单独歌名字段)
+        String songTitle = text;      // 歌手+专辑名 → 屏幕左上角
+        String lyricLine = title;     // 当前歌词 → 屏幕主体
 
         // 播放状态: 从通知 actions 推断 (有暂停按钮 => 播放中)
         int playing = inferPlaying(notif);
-
-        LogStore.add("转发: 歌名='" + songTitle + "' 歌词='" + lyricLine + "'");
 
         // 确保已连接 (通知到达时才开始连, 避免空跑)
         if (ble != null) {
